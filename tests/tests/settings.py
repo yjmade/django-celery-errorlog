@@ -37,7 +37,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'djcelery',
     'errorlog',
+    'djcelery_errorlog',
     'simple'
 ]
 
@@ -136,3 +138,8 @@ STATIC_URL = '/static/'
 
 
 VCS_SYSTEM = "hg"
+
+CELERY_ACCEPT_CONTENT = ['pickle']
+import djcelery   # noqa
+
+djcelery.setup_loader()

@@ -56,7 +56,7 @@ class CeleryError(BaseError):
                 @wraps(func)
                 def task_runner(*args, **kwargs):
                     save_args = args[1:] if bind else args
-                    with cls.log_exception(name, args=save_args, kwargs=kwargs, save_now=True):
+                    with cls.log_exception(name, args=save_args, kwargs=kwargs):
                         return func_run(*args, **kwargs)
 
                 task = dec_func(**options)(task_runner)

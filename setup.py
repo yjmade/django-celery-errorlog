@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from setuptools import setup, find_packages
-# import sys
+import sys
 
-# if 'bdist_wheel' in sys.argv:
-from pypandoc import convert
-long_description = convert('README.md', 'rst')
+if 'sdist' in sys.argv:
+    from pypandoc import convert
+    long_description = convert('README.md', 'rst')
+else:
+    long_description = ""
 VERSION = "0.1.0"
 
 setup(
