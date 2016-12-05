@@ -8,7 +8,7 @@ if 'sdist' in sys.argv:
     long_description = convert('README.md', 'rst')
 else:
     long_description = ""
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 setup(
     name='django-celery-errorlog',

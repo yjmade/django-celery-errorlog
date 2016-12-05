@@ -1,22 +1,20 @@
-# django-errorlog
-Django reuseable app to collect the unexpcted exception then generate comprehansive report just like what you get in debug mode and store in database
+# django-celery-errorlog
+Reuseable app for django to collect the unexpted exception and generate comprehansive report just like what you get in debug mode and store in database from celery task
 
 Introduction
 ============
-Django has it's own error handling machanism, which will send a email to the admin address configed in the settings. It works but there are some shortage.
+This is a extension of [django-errorlog](https://pypi.python.org/pypi/django-errorlog) to bring support of celery task with some other features.
+I love Celery, but sometimes when there are bugs hiding in the celery tasks code, and the code has already running as deamon in the background of the production server, you will find it's hard to track and debug the error. More importantly, when a unhandled exception happened, that's also means the task failed, and the arguments send to this task will be losed.
+To solve this problem, this app wrap you task function inside a database transaction, when unhandled exception been catched by the wrapper, it will do this following stuff:
 
-1. The stack trace include in the email is as same as what you can see in console. It doesn't contains the varible value which can be very useful to debug.
+1. rollback this transaction
+2. get the exception and traceback to generate a HTML error report as same as the Django buildin 500 page when `DEBUG=True`, which contains the stack trace also the varibles in each stack. That make it much easier to debug.
+3. record the arguments of this task
+4. get the error categorized
 
-2. Incovinient to trace the errors, it's a email, hard to catoegorized, and hard to track the status.
-3. Some times one same error will bring you thousands of emails if this api happens to be visit a lot. You will waste a lot of time to find the different errors from the error happens most.
+So, after error happened, you can check the `CeleryError.unfixed_errors`, then fix the code, restart the worker, then run `error.fix()` to send this task back to the queue again to make sure all task will be run.
 
-This module solves these problem in the following way.
-
-1. We are love the Django buildin debug 500 page, it's contains almost all the information we need to debug, like the request infomation, the user, the settings, the stack trace with local vars, etc. So what we do, is to have a middleware to capture the unhandle exception then simply invoke the Django buildin reporter class to generate the full html report of the exception, then store in the database.
-2. Each error item have the field to record a. fixed b. vcs version(support hg and git), you can `ignore` it after this bug has been addressed. Then it will gone from the `unfixed_error` list.
-3. Errors will be categoried by the type of exception and the location where the exception been raised (location means the python file path and the method name). So in most case, same error that happened multiple times will be showed only once but with the count of how many times it's happend. Then when the error been ignore, all the same error will been marked as ignored.
-
-This Module has been running in my company's website for more than 1 year and helps to solved thousands of bugs.
+If you do `error.fix()` before you fixed code in place, it's doesn't matter, because even the old error has been mark as fixed, since the same error will be raised again, so you will get new error with same parameters.  
 
 Change Logs
 ===========
@@ -28,34 +26,48 @@ Install
 =======
  
 ```bash
-pip install django-errorlog
+pip install django-celery-errorlog
 ```
 Then modify the settings
  
-1. add `errorlog` in the INSTALLED_APPS  
-2. if you are using django>=1.10, insert `errorlog.middlewares.ErrorLogMiddleware` in the `MIDDLEWARES` at the first line.
-3. (optional) if you have your django project live inside a VCS(hg or git), set `VCS_SYSTEM = "hg"` or  `VCS_SYSTEM = "git"` to enable the erro rev tracking.
+1. Follow the instruction of [django-errorlog](https://pypi.python.org/pypi/django-errorlog) to set it up properly 
+2. set up djcelery properly
+3. Add `djcelery-errorlog` into `INSTALLED_APPS` after `errorlog`
 
 Then do `python manage.py migrate` to setup the database table.
 
-Then when your views get an 500 error, there will be a new log item stored.
 
 
 Usage
 =====
- buildin shell command
+In tasks.py, you have to change the import of `shared_task` and `periodic_task` from `celery` to `djcelery_errorlog` to make errorlog work, here is the example
+
+```python
+# -*- coding: utf-8 -*-
+from djcelery_errorlog import shared_task
+
+
+@shared_task(name="tests")
+def tests(**kwargs):
+    raise ValueError(kwargs)
+
+```
+That's it, now when there is uncatched exception been throwed, CeleryError will record the invoke parameter and stack trace.
+
+
+ buildin shell command(same as django-errorlog)
 ------------------
 ```python
->>> from errorlog.models import Error
->>> Error.unfixed_errors
-{0: <Error:     1 - /test/2/ - ValueError: A>,
- 1: <Error:     4 - /test/1/ - ValueError: B>}
->>> error = Error.unfixed_errors[1]
+>>> from djcelery_errorlog.models import CeleryError
+>>> CeleryError.unfixed_errors
+{0: <CeleryError:     1 - test1 - ValueError: A>,
+ 1: <CeleryError:     4 - test2 - ValueError: B>}
+>>> error = CeleryError.unfixed_errors[1]
 >>> error
- 1: <Error:     4 - /test/1/ - ValueError: B>
+ 1: <CeleryError:     4 - test1 - ValueError: B>
 >>> # in this repr, the first number is the index to make it easy to select; 
 >>> # the second number 4 is the the count of the same error happened;
->>> # /test/1/ is the uri of the api;
+>>> # test1 is the name of the task;
 >>> # ValueError is the exception type; 
 >>> # B is the args in the exception.
 >>> error.vcs_rev # the git/hg version of error, for hg, it's the incremental number that is orderable
@@ -63,42 +75,8 @@ Usage
 >>> error.ignore() # this command ignore the whole 4 error logs
 ```
 
-Django admin
-------------
-If you use django buildin admin, you should be able to find the Error in the home page.
+Fix the error
+------
+After you fixed the code base on the error been tracked, you can do `error.fix([queue="queue_name"])` to get the task with same parameter run again. Remember, when you run fix on one error, all same errors will be send to the celery worker and marked as fixed.
 
-If you want to see the html error report, you need to build the view youself to transfer the error_html to the browser.
 
-Advance Usage
---------------
-You can use Error.log_exception to log one specific error in one certain scope. 
-
-```python
-from errorlog.models import Error
-with Error.log_exception("name", reraise=False):
-	do_something_here()
-
-```
-If `reraise = True`, then after being loged, the exception will keep raising out. Caution, if you have database atomic open, since unhandle error will make django to rollback the transaction, so this log will also been rollbacked.
-
-If `reraise = False`, then it will log the exception then stop propogation and continue to run the following code. It's as same as the following code
-
-```python
-try:
-	do_something_here()
-except Exception as e:
-    pass
-```
-
-Here is an example of how I using it
-
-```python
-with Error.log_exception("send_email_through_mailgun", reraise=False):
-	response=requests.post(url,parms)
-	content=response.content
-	status_code=response.status_code
-	if status_code!=200:
-		raise ValueError("Mailgun failed")
-other_stuff()
-```
-So that I can capture when the mailgun's api return an error, and keep the stuff going.
