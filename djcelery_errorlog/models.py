@@ -18,7 +18,7 @@ class CeleryErrorQuerySet(models.QuerySet):
 
 
 class CeleryError(BaseError):
-
+    objects = models.Manager.from_queryset(CeleryErrorQuerySet)()
     args = PickledObjectField(compress=True)
     kwargs = PickledObjectField(compress=True)
     args_repr = models.TextField(null=True, blank=True)
@@ -64,3 +64,6 @@ class CeleryError(BaseError):
                 return task
             return task_runner_maker
         return decorator
+
+    def fix(self, queue=None):
+        self.same_errors.fix(queue)
